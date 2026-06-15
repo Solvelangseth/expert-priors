@@ -21,6 +21,7 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
+from .benchmark import ComparisonReport, compare
 from .bundle import PriorBundle
 from .context import FeatureContext, generate_feature_context
 from .elicit import PriorElicitor, elicit_priors
@@ -52,15 +53,5 @@ __all__ = [
     "IndependentPriorLogistic",
     # benchmarking
     "compare",
+    "ComparisonReport",
 ]
-
-
-def compare(*args, **kwargs):
-    """Benchmark a baseline against every prior family on ID and OOD splits.
-
-    Thin re-export so ``expert_priors.compare(...)`` works without importing the
-    submodule. See :func:`expert_priors.compare.compare`.
-    """
-    from .compare import compare as _compare
-
-    return _compare(*args, **kwargs)

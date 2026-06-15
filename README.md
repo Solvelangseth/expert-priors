@@ -68,7 +68,7 @@ Baselines for "OOD lift" comparisons: **Ridge** (regression) and **L2 Logistic**
 - [x] Prior-informed model families as sklearn estimators (numerically matched to the thesis classes)
 - [x] Elicitation + multi-provider call layer (Anthropic/OpenAI/Google), parallel sampling, disk caching
 - [x] Auto feature-context generator (`auto_context=True` / `generate_feature_context`)
-- [ ] `compare()` benchmark + plotting
+- [x] `compare()` benchmark (ID/OOD metrics, lift-vs-baseline, plotting)
 - [ ] Example notebook with cached demo priors (no API key needed)
 
 ## Companion thesis repo
