@@ -114,6 +114,76 @@ class FeatureContext:
         }
 
 
+_CONTEXT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "dataset_description": {"type": "string"},
+        "target_description": {"type": "string"},
+        "features": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "unit": {"type": "string"},
+                    "category_labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "code": {"type": "string"},
+                                "label": {"type": "string"},
+                            },
+                            "required": ["code", "label"],
+                        },
+                    },
+                },
+                "required": ["name", "description"],
+            },
+        },
+    },
+    "required": ["features"],
+}
+
+
+def _build_context_prompt(
+    X: "pd.DataFrame",
+    target: str | None,
+    n_sample_rows: int,
+    data_dictionary: str | None,
+) -> tuple[str, str]:
+    import pandas as pd  # local import keeps pandas optional at import time
+
+    cols = list(X.columns)
+    dtypes = "\n".join(f"- {c}: {X[c].dtype}" for c in cols)
+    sample = X.head(n_sample_rows).to_dict(orient="records")
+    sample_lines = "\n".join(str(row) for row in sample)
+
+    system = (
+        "You are a data documentation assistant. Given a tabular dataset, you write "
+        "concise, accurate domain descriptions for each feature so a downstream model "
+        "can reason about it. Be factual; do not invent units you cannot infer."
+    )
+    parts = [
+        "Describe each feature of this dataset.",
+        f"\nColumns and dtypes:\n{dtypes}",
+        f"\nFirst {min(n_sample_rows, len(X))} rows:\n{sample_lines}",
+    ]
+    if target:
+        parts.append(f"\nThe prediction target is '{target}'. Phrase descriptions with that outcome in mind.")
+    if data_dictionary:
+        parts.append(f"\nAnalyst-provided data dictionary / notes:\n{data_dictionary}")
+    parts.append(
+        "\nReturn a JSON object with keys 'dataset_description' (one sentence), "
+        "'target_description' (one sentence, or empty), and 'features' (an array). "
+        "Each feature has 'name' (exactly matching a column), 'description' "
+        "(one concise line), optional 'unit', and optional 'category_labels' as a "
+        "list of {code, label} for categorical/coded columns. Include every column."
+    )
+    return system, "\n".join(parts)
+
+
 def generate_feature_context(
     X: "pd.DataFrame",
     target: str | None = None,
@@ -121,6 +191,8 @@ def generate_feature_context(
     model: str = "claude-opus-4-8",
     n_sample_rows: int = 5,
     data_dictionary: str | None = None,
+    temperature: float = 0.4,
+    client=None,
 ) -> FeatureContext:
     """Use an LLM to draft a :class:`FeatureContext` from a dataframe.
 
@@ -141,18 +213,46 @@ def generate_feature_context(
         How many example rows to show the model.
     data_dictionary:
         Optional free-text notes / codebook to ground the descriptions.
+    temperature:
+        Sampling temperature (low by default — this is a description task).
+    client:
+        Optional pre-built provider client (mainly for testing / reuse).
 
     Returns
     -------
     FeatureContext
-
-    Notes
-    -----
-    TODO(port): implemented in the auto-context step. Will call the provider
-    layer in :mod:`expert_priors.providers` with a structured-output schema and
-    map the response onto :class:`FeatureDescription` objects.
+        Always in the original ``X`` column order, with every column present
+        (columns the model omitted get a blank description to fill in).
     """
-    raise NotImplementedError(
-        "generate_feature_context is part of the auto-context build step (not yet ported). "
-        "For now, build context with FeatureContext.from_dict(...) or FeatureContext.blank(...)."
+    if client is None:
+        from .providers import LLMClient
+
+        client = LLMClient(model)
+
+    system, user = _build_context_prompt(X, target, n_sample_rows, data_dictionary)
+    payload = client.complete_json(system, user, schema=_CONTEXT_SCHEMA, temperature=temperature)
+
+    drafted = {}
+    for item in payload.get("features", []):
+        if not isinstance(item, dict) or "name" not in item:
+            continue
+        labels = {}
+        for pair in item.get("category_labels", []) or []:
+            if isinstance(pair, dict) and "code" in pair and "label" in pair:
+                labels[str(pair["code"])] = str(pair["label"])
+        unit = item.get("unit") or None
+        drafted[str(item["name"])] = FeatureDescription(
+            name=str(item["name"]),
+            description=str(item.get("description", "")),
+            unit=unit,
+            category_labels=labels,
+        )
+
+    # Preserve X column order; fill any omitted columns with a blank entry.
+    features = [drafted.get(col, FeatureDescription(name=col)) for col in X.columns]
+    return FeatureContext(
+        features=features,
+        target=target,
+        target_description=str(payload.get("target_description", "")),
+        dataset_description=str(payload.get("dataset_description", "")),
     )

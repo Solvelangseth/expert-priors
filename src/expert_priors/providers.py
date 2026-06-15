@@ -109,6 +109,30 @@ def _coerce_coefficients(payload: object, feature_names: Sequence[str]) -> dict[
     return out
 
 
+def parse_json_object(text: str | None) -> dict:
+    """Parse the first valid JSON object from raw model text (fences/prose tolerated)."""
+    if not text or not str(text).strip():
+        raise ValueError("empty response")
+    raw = str(text).strip()
+    candidates = [raw]
+    candidates += [c.strip() for c in re.findall(r"```json\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)]
+    candidates += [c.strip() for c in re.findall(r"```\s*(.*?)```", raw, re.DOTALL)]
+    inline = _extract_first_braced_object(raw)
+    if inline:
+        candidates.append(inline.strip())
+    last_error: Exception | None = None
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except Exception as exc:
+            last_error = exc
+    raise ValueError(f"unable to parse JSON object ({last_error})")
+
+
 def parse_coefficients(text: str | None, feature_names: Sequence[str]) -> dict[str, float]:
     """Parse coefficients from raw model text, tolerating fences / prose."""
     if not text or not str(text).strip():
@@ -202,6 +226,110 @@ class LLMClient:
         except Exception as exc:
             raise RuntimeError(f"[{self.provider}] call failed: {exc}") from exc
         return parse_coefficients(text, feature_names)
+
+    def complete_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        schema: dict | None = None,
+        temperature: float = 0.4,
+        max_tokens: int = 4000,
+    ) -> dict:
+        """Request a free-form JSON object (used by the auto-context generator)."""
+        try:
+            if self.provider == "anthropic":
+                obj = self._json_anthropic(system_prompt, user_prompt, schema, temperature, max_tokens)
+            elif self.provider == "openai":
+                obj = self._json_openai(system_prompt, user_prompt, temperature, max_tokens)
+            elif self.provider == "google":
+                obj = self._json_google(system_prompt, user_prompt, schema, temperature)
+            else:
+                raise ValueError(f"unsupported provider: {self.provider}")
+        except Exception as exc:
+            raise RuntimeError(f"[{self.provider}] json call failed: {exc}") from exc
+        return obj
+
+    def _json_anthropic(self, system_prompt, user_prompt, schema, temperature, max_tokens) -> dict:
+        import os
+
+        import anthropic
+
+        key = self.api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not key:
+            raise ValueError("missing ANTHROPIC_API_KEY")
+        client = anthropic.Anthropic(api_key=key)
+        if schema is not None:
+            tool_name = "emit"
+            resp = client.messages.create(
+                model=self.model, system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                max_tokens=max_tokens, temperature=float(temperature),
+                tools=[{"name": tool_name, "description": "Emit the requested JSON object.",
+                        "input_schema": schema}],
+                tool_choice={"type": "tool", "name": tool_name},
+            )
+            for block in getattr(resp, "content", []) or []:
+                btype = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                payload = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
+                if btype == "tool_use" and isinstance(payload, dict):
+                    return payload
+        resp = client.messages.create(
+            model=self.model, system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=max_tokens, temperature=float(temperature),
+        )
+        text = "\n".join(getattr(b, "text", "") or "" for b in getattr(resp, "content", []) or [])
+        return parse_json_object(text)
+
+    def _json_openai(self, system_prompt, user_prompt, temperature, max_tokens) -> dict:
+        import os
+
+        from openai import OpenAI
+
+        key = self.api_key or os.getenv("OPENAI_API_KEY")
+        if not key:
+            raise ValueError("missing OPENAI_API_KEY")
+        client = OpenAI(api_key=key, timeout=self.timeout, max_retries=0)
+        params = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "max_completion_tokens": max_tokens,
+            "temperature": float(temperature),
+        }
+        try:
+            resp = client.chat.completions.create(**params)
+        except Exception as exc:
+            if not _is_unsupported_temperature_error(exc):
+                raise
+            params.pop("temperature", None)
+            resp = client.chat.completions.create(**params)
+        return parse_json_object(resp.choices[0].message.content or "")
+
+    def _json_google(self, system_prompt, user_prompt, schema, temperature) -> dict:
+        import os
+
+        import google.generativeai as genai
+
+        key = self.api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        if not key:
+            raise ValueError("missing GOOGLE_API_KEY or GEMINI_API_KEY")
+        genai.configure(api_key=key)
+        model = genai.GenerativeModel(self.model, system_instruction=system_prompt)
+        config = {"temperature": float(temperature), "response_mime_type": "application/json"}
+        if schema is not None:
+            config["response_schema"] = schema
+        try:
+            resp = model.generate_content(user_prompt, generation_config=config)
+        except Exception:
+            resp = model.generate_content(
+                user_prompt, generation_config={"temperature": float(temperature)}
+            )
+        return parse_json_object(str(getattr(resp, "text", "") or ""))
 
     # -- provider implementations -----------------------------------------
     def _call_anthropic(self, system_prompt, user_prompt, feature_names, temperature) -> str:
