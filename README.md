@@ -12,10 +12,10 @@ drifts away from the training domain.
 > reproducibility pipeline (6 datasets × 12 LLM cells, locked CV + bootstrap)
 > lives in the companion thesis repo — linked below.
 
-> ⚠️ **Status: early scaffold (v0.1.0).** The public API and data containers are
-> in place and tested; elicitation, model fitting, and benchmarking are being
-> ported from the thesis code and currently raise `NotImplementedError`. See the
-> roadmap below.
+> **Status (v0.1.0):** the full pipeline works end to end — elicitation,
+> prior-informed models, auto-context, and benchmarking — with **40 passing
+> tests** and a runnable [example notebook](examples/quickstart.ipynb) that needs
+> no API key. The model families are numerically matched to the thesis code.
 
 ## Install
 
@@ -23,6 +23,16 @@ drifts away from the training domain.
 pip install -e ".[all]"        # all providers + plotting
 # or pick what you need: ".[anthropic]", ".[openai]", ".[google]", ".[plot]"
 ```
+
+## See it work (no API key)
+
+```bash
+pip install -e ".[plot]"
+jupyter notebook examples/quickstart.ipynb   # runs off cached priors
+```
+
+The notebook walks raw data → cached LLM priors → a prior-informed model →
+an ID/OOD benchmark showing the prior's out-of-domain lift.
 
 ## Quickstart (target API)
 
@@ -69,7 +79,7 @@ Baselines for "OOD lift" comparisons: **Ridge** (regression) and **L2 Logistic**
 - [x] Elicitation + multi-provider call layer (Anthropic/OpenAI/Google), parallel sampling, disk caching
 - [x] Auto feature-context generator (`auto_context=True` / `generate_feature_context`)
 - [x] `compare()` benchmark (ID/OOD metrics, lift-vs-baseline, plotting)
-- [ ] Example notebook with cached demo priors (no API key needed)
+- [x] Example notebook with cached demo priors (no API key needed)
 
 ## Companion thesis repo
 

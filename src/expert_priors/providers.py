@@ -183,7 +183,14 @@ def _schema_constrained_prompt(user_prompt: str, feature_names: Sequence[str]) -
 def _is_unsupported_temperature_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     return "temperature" in msg and any(
-        s in msg for s in ("unsupported parameter", "unsupported value", "does not support", "only the default")
+        s in msg
+        for s in (
+            "unsupported parameter",
+            "unsupported value",
+            "does not support",
+            "only the default",
+            "deprecated",
+        )
     )
 
 
@@ -259,12 +266,17 @@ class LLMClient:
         if not key:
             raise ValueError("missing ANTHROPIC_API_KEY")
         client = anthropic.Anthropic(api_key=key)
+        base = {
+            "model": self.model,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "max_tokens": max_tokens,
+            "temperature": float(temperature),
+        }
         if schema is not None:
             tool_name = "emit"
-            resp = client.messages.create(
-                model=self.model, system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-                max_tokens=max_tokens, temperature=float(temperature),
+            resp = self._anthropic_create(
+                client, **base,
                 tools=[{"name": tool_name, "description": "Emit the requested JSON object.",
                         "input_schema": schema}],
                 tool_choice={"type": "tool", "name": tool_name},
@@ -274,11 +286,7 @@ class LLMClient:
                 payload = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
                 if btype == "tool_use" and isinstance(payload, dict):
                     return payload
-        resp = client.messages.create(
-            model=self.model, system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-            max_tokens=max_tokens, temperature=float(temperature),
-        )
+        resp = self._anthropic_create(client, **base)
         text = "\n".join(getattr(b, "text", "") or "" for b in getattr(resp, "content", []) or [])
         return parse_json_object(text)
 
@@ -332,6 +340,17 @@ class LLMClient:
         return parse_json_object(str(getattr(resp, "text", "") or ""))
 
     # -- provider implementations -----------------------------------------
+    @staticmethod
+    def _anthropic_create(client, **kwargs):
+        """messages.create that drops temperature if the model rejects it."""
+        try:
+            return client.messages.create(**kwargs)
+        except Exception as exc:
+            if "temperature" in kwargs and _is_unsupported_temperature_error(exc):
+                kwargs.pop("temperature", None)
+                return client.messages.create(**kwargs)
+            raise
+
     def _call_anthropic(self, system_prompt, user_prompt, feature_names, temperature) -> str:
         import os
 
@@ -343,13 +362,17 @@ class LLMClient:
         client = anthropic.Anthropic(api_key=key)
         tool_name = "prior_coefficients"
         prompt = _schema_constrained_prompt(user_prompt, feature_names)
+        base = {
+            "model": self.model,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1200,
+            "temperature": float(temperature),
+        }
         try:
-            resp = client.messages.create(
-                model=self.model,
-                system=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1200,
-                temperature=float(temperature),
+            resp = self._anthropic_create(
+                client,
+                **base,
                 tools=[{
                     "name": tool_name,
                     "description": "Return prior coefficients as a strict JSON object.",
@@ -358,11 +381,7 @@ class LLMClient:
                 tool_choice={"type": "tool", "name": tool_name},
             )
         except Exception:
-            resp = client.messages.create(
-                model=self.model, system=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1200, temperature=float(temperature),
-            )
+            resp = self._anthropic_create(client, **base)
         for block in getattr(resp, "content", []) or []:
             btype = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
             payload = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
