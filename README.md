@@ -65,7 +65,7 @@ Baselines for "OOD lift" comparisons: **Ridge** (regression) and **L2 Logistic**
 ## Roadmap
 
 - [x] Package scaffold, public API, `PriorBundle` + `FeatureContext` (tested)
-- [ ] Port prior-informed model families as sklearn estimators
+- [x] Prior-informed model families as sklearn estimators (numerically matched to the thesis classes)
 - [ ] Port elicitation + multi-provider call layer, disk caching
 - [ ] Auto feature-context generator (`auto_context=True`)
 - [ ] `compare()` benchmark + plotting
