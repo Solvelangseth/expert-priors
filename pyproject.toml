@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "expert-priors"
+version = "0.1.0"
+description = "LLM-elicited expert priors for regularized statistical models — better out-of-domain prediction with scalable domain knowledge."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Solve Langseth" }]
+keywords = ["bayesian", "priors", "llm", "scikit-learn", "regularization", "elicitation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "scikit-learn>=1.2",
+]
+
+[project.optional-dependencies]
+# Provider SDKs are optional: install only what you use.
+openai = ["openai>=1.40"]
+anthropic = ["anthropic>=0.40"]
+google = ["google-generativeai>=0.8"]
+all = ["openai>=1.40", "anthropic>=0.40", "google-generativeai>=0.8", "python-dotenv>=1.0"]
+plot = ["matplotlib>=3.6"]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/Solvelangseth/expert-priors"
+"Thesis / reproducibility" = "https://github.com/Solvelangseth/llm-statistics-clean"
+
+[project.scripts]
+expert-priors = "expert_priors.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/expert_priors"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
