@@ -14,3 +14,9 @@ it reads on GitHub without running.
   ```bash
   python examples/build_demo_priors.py --model claude-opus-4-8 --samples 20
   ```
+- `generate_figure.py` — render the README results figure from the cached priors (no API key):
+
+  ```bash
+  python examples/generate_figure.py   # writes figures/ood_lift.png
+  ```
+- `figures/ood_lift.png` — the ID/OOD lift figure shown in the top-level README.

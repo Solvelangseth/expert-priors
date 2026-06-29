@@ -153,8 +153,6 @@ def _build_context_prompt(
     n_sample_rows: int,
     data_dictionary: str | None,
 ) -> tuple[str, str]:
-    import pandas as pd  # local import keeps pandas optional at import time
-
     cols = list(X.columns)
     dtypes = "\n".join(f"- {c}: {X[c].dtype}" for c in cols)
     sample = X.head(n_sample_rows).to_dict(orient="records")
