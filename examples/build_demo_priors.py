@@ -4,7 +4,7 @@ Run this if you want to regenerate ``examples/priors/housing_prior.json`` (needs
 an API key in your environment / .env). The committed cache lets the notebook run
 with no key at all.
 
-    python examples/build_demo_priors.py --model claude-opus-4-8 --samples 20
+    python examples/build_demo_priors.py --model claude-opus-5-5 --samples 20
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ CACHE = Path(__file__).parent / "priors" / "housing_prior.json"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default="claude-opus-4-8")
+    parser.add_argument("--model", default="claude-opus-5-5")
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--out", default=str(CACHE))
     args = parser.parse_args()

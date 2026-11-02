@@ -50,6 +50,9 @@ The LLM is sampled repeatedly, and each family uses those draws differently:
 | `IndependentPriorRidge` / `IndependentPriorLogistic` | prior mean | + per-coefficient spread |
 | `CorrelatedPriorRidge` / `CorrelatedPriorLogistic` | prior mean | + full covariance between coefficients |
 
+Independent and Correlated need the draws to vary; the library warns when they
+don't, and Prior-Mean is the robust default.
+
 All are scikit-learn estimators: they take raw `X`, standardize internally,
 expose raw-unit `coef_`, and work with `clone`, pipelines and grid search.
 

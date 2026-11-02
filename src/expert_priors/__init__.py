@@ -7,8 +7,7 @@ models that improve out-of-domain prediction.
 Quickstart
 ----------
 >>> import expert_priors as ep
->>> priors = ep.elicit_priors(X, y, task="regression",
-...                           model="claude-opus-4-8", auto_context=True)
+>>> priors = ep.elicit_priors(X, y, task="regression", auto_context=True)
 >>> model = ep.PriorMeanRidge(priors).fit(X_train, y_train)
 >>> preds = model.predict(X_test)
 

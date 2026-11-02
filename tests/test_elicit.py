@@ -138,3 +138,14 @@ def test_elicit_priors_cache_roundtrip(tmp_path, monkeypatch):
     second = elicit_priors(X, task="regression", n_samples=3, cache=cache)
     assert len(fake.calls) == n_before
     np.testing.assert_allclose(first.samples, second.samples)
+
+
+class ConstantClient(FakeClient):
+    def complete_coefficients(self, system, user, feature_names, *, temperature=0.8):
+        return {f: 1.0 for f in feature_names}
+
+
+def test_identical_draws_warn():
+    elic = PriorElicitor("claude-opus-5-5", n_samples=3, max_workers=1, client=ConstantClient())
+    with pytest.warns(UserWarning, match="identical"):
+        elic.elicit(_ctx())

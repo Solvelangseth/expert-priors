@@ -77,6 +77,13 @@ class PriorBundle:
         """Per-feature variance of the elicited coefficients."""
         return self.samples.var(axis=0, ddof=1) if self.n_samples > 1 else np.zeros(self.n_features)
 
+    def flat_features(self) -> list[str]:
+        """Features whose elicited coefficient is identical across every draw."""
+        if self.n_samples < 2:
+            return list(self.feature_names)
+        flat = np.ptp(self.samples, axis=0) == 0
+        return [name for name, is_flat in zip(self.feature_names, flat) if is_flat]
+
     def align_to(self, feature_names: Sequence[str]) -> "PriorBundle":
         """Return a bundle reordered/subset to match a design-matrix schema.
 

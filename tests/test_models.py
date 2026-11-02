@@ -178,3 +178,19 @@ def test_missing_values_raise_clear_error(cls):
     priors = _prior(X.columns, np.zeros(3), task=task)
     with pytest.raises(ValueError, match="impute"):
         cls(priors).fit(X, target)
+
+
+def test_flat_prior_warns_for_spread_based_families_only():
+    import warnings
+
+    X, y, _ = _reg_data()
+    samples = np.random.default_rng(0).normal(size=(10, 3))
+    samples[:, 0] = 1.5  # no spread on x0
+    priors = PriorBundle(list(X.columns), samples, task="regression")
+    assert priors.flat_features() == ["x0"]
+    for cls in (IndependentPriorRidge, CorrelatedPriorRidge):
+        with pytest.warns(UserWarning, match="no spread"):
+            cls(priors, alpha=1.0).fit(X, y)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        PriorMeanRidge(priors, alpha=1.0).fit(X, y)

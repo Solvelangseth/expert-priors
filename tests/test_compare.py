@@ -97,3 +97,21 @@ def test_compare_via_package_namespace():
     priors = _prior_near(beta, X.columns)
     report = ep.compare(X, y, priors, families=["prior_mean"], alpha=1.0)
     assert not report.summary().empty
+
+
+def test_compare_warns_once_for_flat_prior():
+    import warnings
+
+    import expert_priors as ep
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(120, 2)), columns=["a", "b"])
+    y = X["a"] - X["b"] + rng.normal(scale=0.1, size=120)
+    samples = rng.normal(size=(8, 2))
+    samples[:, 0] = 1.0
+    priors = ep.PriorBundle(["a", "b"], samples)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        ep.compare(X, y, priors, alpha=1.0)
+    msgs = [str(w.message) for w in caught if "no spread" in str(w.message)]
+    assert len(msgs) == 1 and "Correlated and Independent" in msgs[0]

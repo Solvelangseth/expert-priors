@@ -186,7 +186,7 @@ def generate_feature_context(
     X: "pd.DataFrame",
     target: str | None = None,
     *,
-    model: str = "claude-opus-4-8",
+    model: str = "claude-opus-5-5",
     n_sample_rows: int = 5,
     data_dictionary: str | None = None,
     temperature: float = 0.4,
@@ -206,7 +206,7 @@ def generate_feature_context(
     target:
         Optional target-variable name, used to phrase descriptions toward it.
     model:
-        LLM used to draft the context. Defaults to the latest Claude model.
+        LLM used to draft the context. Defaults to Claude Opus 5.5.
     n_sample_rows:
         How many example rows to show the model.
     data_dictionary:

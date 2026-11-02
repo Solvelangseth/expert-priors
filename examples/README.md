@@ -12,7 +12,7 @@ it reads on GitHub without running.
 - `build_demo_priors.py` — regenerate the cached priors yourself (needs an API key):
 
   ```bash
-  python examples/build_demo_priors.py --model claude-opus-4-8 --samples 20
+  python examples/build_demo_priors.py --samples 20
   ```
 - `generate_figure.py` — render the README figure from the cached priors (no API key):
 

@@ -11,6 +11,7 @@ standardization and alpha grid and every "Delta vs baseline" is apples-to-apples
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -187,8 +188,14 @@ def compare(
 
     metric_fn = _regression_metrics if task == "regression" else _classification_metrics
     rows: list[dict] = []
+    flat_prior_models = []
     for label, model in models.items():
-        model.fit(X_tr, y_tr)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*no spread across the LLM draws")
+            model.fit(X_tr, y_tr)
+        if label != baseline_label and model._family in ("independent", "correlated"):
+            if priors.flat_features():
+                flat_prior_models.append(label)
         for split_name, idx in eval_splits:
             preds = _predict_for_eval(model, X.iloc[idx], task)
             rows.append({
@@ -197,4 +204,14 @@ def compare(
                 **metric_fn(y[idx], preds),
             })
 
+    if flat_prior_models:
+        flat = priors.flat_features()
+        warnings.warn(
+            f"{len(flat)} of {priors.n_features} prior coefficients have no spread across the "
+            f"LLM draws ({', '.join(flat[:5])}{', ...' if len(flat) > 5 else ''}); "
+            f"{' and '.join(flat_prior_models)} hold them almost fixed at the prior mean. "
+            "Prior-Mean uses only the mean and is unaffected.",
+            UserWarning,
+            stacklevel=2,
+        )
     return ComparisonReport(rows=rows, task=task, baseline_label=baseline_label)

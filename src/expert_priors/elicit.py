@@ -6,6 +6,7 @@ class that holds provider/config state and runs the sampling loop.
 
 from __future__ import annotations
 
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,7 +22,7 @@ from .summaries import feature_summary_block
 if TYPE_CHECKING:  # pragma: no cover
     import pandas as pd
 
-_DEFAULT_MODEL = "claude-opus-4-8"
+_DEFAULT_MODEL = "claude-opus-5-5"
 
 
 class PriorElicitor:
@@ -30,7 +31,7 @@ class PriorElicitor:
     Parameters
     ----------
     model:
-        LLM id. Defaults to the latest Claude model.
+        LLM id. Defaults to Claude Opus 5.5 (``claude-opus-5-5``).
     task:
         ``"regression"`` or ``"classification"``.
     n_samples:
@@ -38,9 +39,9 @@ class PriorElicitor:
     temperature:
         Sampling temperature for the draws (thesis default 0.8).
     system_prompt, prompt:
-        Optional overrides. If ``prompt`` is given it fully replaces the generated
-        user prompt (the context's scale block is still appended unless you also
-        pass ``feature_summaries=""``); use it to bring your own wording.
+        Optional overrides. If ``prompt`` is given it replaces the generated user
+        prompt entirely (feature context and scale summaries are not added), so
+        include everything the model should see; use it to bring your own wording.
     max_workers:
         Parallel in-flight requests.
     retries:
@@ -110,9 +111,18 @@ class PriorElicitor:
                     coeffs = fut.result()
                     rows.append([coeffs[f] for f in feature_names])
 
+        samples = np.asarray(rows, dtype=float)
+        if samples.shape[0] > 1 and (np.ptp(samples, axis=0) == 0).all():
+            warnings.warn(
+                f"All {samples.shape[0]} draws from {self.model} are identical, so the prior "
+                "carries a mean but no uncertainty (many current models ignore sampling "
+                "temperature). Use a PriorMean* estimator, or vary the prompt to get spread.",
+                UserWarning,
+                stacklevel=3,
+            )
         return PriorBundle(
             feature_names=list(feature_names),
-            samples=np.asarray(rows, dtype=float),
+            samples=samples,
             task=self.task,
             model=self.model,
             metadata={
@@ -149,7 +159,7 @@ def elicit_priors(
     task:
         ``"regression"`` or ``"classification"``.
     model:
-        LLM id. Defaults to the latest Claude model.
+        LLM id. Defaults to Claude Opus 5.5 (``claude-opus-5-5``).
     n_samples, temperature:
         Number of prior draws and sampling temperature.
     context:

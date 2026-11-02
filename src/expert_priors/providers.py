@@ -5,7 +5,7 @@ the non-reasoning structured-output path the library needs. Each call asks the
 model for a strict JSON object of ``{feature: coefficient}`` and parses/validates
 it back into a Python dict.
 
-The default model is the latest Claude (Anthropic tool-use path). Each provider
+The default model is Claude Opus 5.5 (Anthropic tool-use path). Each provider
 SDK is an optional dependency — its import is deferred until the provider is used.
 """
 
@@ -194,6 +194,16 @@ def _is_unsupported_temperature_error(exc: Exception) -> bool:
     )
 
 
+def _tool_use_input(resp) -> dict | None:
+    """Return the input of the first ``tool_use`` block in an Anthropic response."""
+    for block in getattr(resp, "content", []) or []:
+        btype = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+        payload = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
+        if btype == "tool_use" and isinstance(payload, dict):
+            return payload
+    return None
+
+
 # --- client ---------------------------------------------------------------
 class LLMClient:
     """Routes a structured coefficient request to the right provider SDK."""
@@ -241,7 +251,7 @@ class LLMClient:
         *,
         schema: dict | None = None,
         temperature: float = 0.4,
-        max_tokens: int = 4000,
+        max_tokens: int = 16000,
     ) -> dict:
         """Request a free-form JSON object (used by the auto-context generator)."""
         try:
@@ -274,18 +284,13 @@ class LLMClient:
             "temperature": float(temperature),
         }
         if schema is not None:
-            tool_name = "emit"
-            resp = self._anthropic_create(
-                client, **base,
-                tools=[{"name": tool_name, "description": "Emit the requested JSON object.",
-                        "input_schema": schema}],
-                tool_choice={"type": "tool", "name": tool_name},
-            )
-            for block in getattr(resp, "content", []) or []:
-                btype = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
-                payload = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
-                if btype == "tool_use" and isinstance(payload, dict):
-                    return payload
+            resp = self._anthropic_tool_call(client, base, {
+                "name": "emit", "description": "Emit the requested JSON object.",
+                "input_schema": schema,
+            })
+            payload = _tool_use_input(resp)
+            if payload is not None:
+                return payload
         resp = self._anthropic_create(client, **base)
         text = "\n".join(getattr(b, "text", "") or "" for b in getattr(resp, "content", []) or [])
         return parse_json_object(text)
@@ -351,6 +356,28 @@ class LLMClient:
                 return client.messages.create(**kwargs)
             raise
 
+    @classmethod
+    def _anthropic_tool_call(cls, client, base: dict, tool: dict):
+        """Ask for a call to ``tool``: forced where supported, else ``auto`` + instruction.
+
+        Newer Claude models reject a forced ``tool_choice``; for those the request is
+        retried with ``tool_choice=auto`` and an explicit instruction to use the tool.
+        """
+        try:
+            return cls._anthropic_create(
+                client, **base, tools=[tool],
+                tool_choice={"type": "tool", "name": tool["name"]},
+            )
+        except Exception as exc:
+            if "tool_choice" not in str(exc):
+                raise
+        messages = [dict(m) for m in base["messages"]]
+        messages[-1]["content"] += f"\n\nRespond by calling the `{tool['name']}` tool."
+        return cls._anthropic_create(
+            client, **{**base, "messages": messages}, tools=[tool],
+            tool_choice={"type": "auto"},
+        )
+
     def _call_anthropic(self, system_prompt, user_prompt, feature_names, temperature) -> str:
         import os
 
@@ -366,27 +393,21 @@ class LLMClient:
             "model": self.model,
             "system": system_prompt,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1200,
+            # generous: on models that always think, thinking tokens count toward this
+            "max_tokens": 16000,
             "temperature": float(temperature),
         }
         try:
-            resp = self._anthropic_create(
-                client,
-                **base,
-                tools=[{
-                    "name": tool_name,
-                    "description": "Return prior coefficients as a strict JSON object.",
-                    "input_schema": _coefficient_schema(feature_names),
-                }],
-                tool_choice={"type": "tool", "name": tool_name},
-            )
+            resp = self._anthropic_tool_call(client, base, {
+                "name": tool_name,
+                "description": "Return prior coefficients as a strict JSON object.",
+                "input_schema": _coefficient_schema(feature_names),
+            })
         except Exception:
             resp = self._anthropic_create(client, **base)
-        for block in getattr(resp, "content", []) or []:
-            btype = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
-            payload = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
-            if btype == "tool_use" and isinstance(payload, dict):
-                return json.dumps(payload)
+        payload = _tool_use_input(resp)
+        if payload is not None:
+            return json.dumps(payload)
         return "\n".join(
             getattr(b, "text", "") or "" for b in getattr(resp, "content", []) or []
         )

@@ -27,6 +27,7 @@ L-BFGS. Ported from the validated thesis ``llm_statistics`` implementations.
 
 from __future__ import annotations
 
+import warnings
 from typing import Literal
 
 import numpy as np
@@ -139,6 +140,18 @@ class _PriorModelBase(BaseEstimator):
 
         bundle = self._aligned_bundle(feature_names, p)
         self.feature_names_in_ = bundle.feature_names
+        if self._family in ("independent", "correlated"):
+            flat = bundle.flat_features()
+            if flat:
+                warnings.warn(
+                    f"{len(flat)} of {bundle.n_features} coefficients have no spread across "
+                    f"the LLM draws ({', '.join(flat[:5])}{', ...' if len(flat) > 5 else ''}). "
+                    f"{type(self).__name__} builds its precision from that spread, so these "
+                    "coefficients are held almost fixed at the prior mean. Consider a "
+                    "PriorMean* estimator, which uses only the mean.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         # standardization (population std, like StandardScaler)
         self.center_ = Xa.mean(axis=0) if self.standardize else np.zeros(p)
