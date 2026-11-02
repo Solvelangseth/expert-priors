@@ -167,3 +167,14 @@ def test_logistic_alpha_cv_runs():
     model = PriorMeanLogistic(priors, alpha="cv", alpha_grid=np.array([0.1, 10.0])).fit(X, y)
     assert model.alpha_ in {0.1, 10.0}
     assert 0.0 <= model.score(X, y) <= 1.0
+
+
+@pytest.mark.parametrize("cls", [PriorMeanRidge, PriorMeanLogistic])
+def test_missing_values_raise_clear_error(cls):
+    X, y, _ = _reg_data()
+    X.iloc[0, 0] = np.nan
+    task = "regression" if cls is PriorMeanRidge else "classification"
+    target = y if task == "regression" else (y > 0).astype(int)
+    priors = _prior(X.columns, np.zeros(3), task=task)
+    with pytest.raises(ValueError, match="impute"):
+        cls(priors).fit(X, target)

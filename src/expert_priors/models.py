@@ -128,6 +128,13 @@ class _PriorModelBase(BaseEstimator):
             raise ValueError("X must be 2D")
         if Xa.shape[0] != y.shape[0]:
             raise ValueError("X and y must have the same number of rows")
+        if not np.isfinite(Xa).all():
+            raise ValueError(
+                "X contains NaN or infinite values; impute them first "
+                "(e.g. sklearn.impute.SimpleImputer in a Pipeline)."
+            )
+        if self._task == "regression" and not np.isfinite(y.astype(float)).all():
+            raise ValueError("y contains NaN or infinite values.")
         n, p = Xa.shape
 
         bundle = self._aligned_bundle(feature_names, p)

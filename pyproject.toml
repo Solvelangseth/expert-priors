@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "expert-priors"
 version = "0.1.0"
-description = "LLM-elicited expert priors for regularized statistical models — better out-of-domain prediction with scalable domain knowledge."
+description = "Use an LLM's domain knowledge as a prior for regularized regression and classification."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -35,7 +35,6 @@ dev = ["pytest>=7", "ruff>=0.4"]
 
 [project.urls]
 Homepage = "https://github.com/Solvelangseth/expert-priors"
-"Thesis / reproducibility" = "https://github.com/Solvelangseth/llm-statistics-clean"
 
 [project.scripts]
 expert-priors = "expert_priors.cli:main"

@@ -1,7 +1,8 @@
-"""Render the README results figure from the cached demo priors (no API key).
+"""Render the README figure from the cached demo priors (no API key).
 
-Shows that the LLM prior leaves in-domain accuracy unchanged but improves
-out-of-domain error, using the housing demo with its built-in domain shift.
+Regularization paths on the housing demo: as the penalty grows, Ridge pulls every
+coefficient toward zero, while the prior-informed model pulls it toward the
+LLM-elicited prior. Cross-validation picks the point on each path.
 
     python examples/generate_figure.py
 """
@@ -14,59 +15,76 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import expert_priors as ep
-from expert_priors.bundle import PriorBundle
 from demo_data import make_housing
+from expert_priors.bundle import PriorBundle
 
-OUT = Path(__file__).parent / "figures" / "ood_lift.png"
+OUT = Path(__file__).parent / "figures" / "regularization_paths.png"
+
+INK, INK_2, MUTED, GRID = "#0b0b0b", "#52514e", "#8a8984", "#e6e5e0"
+SURFACE = "#fcfcfb"
+PRIOR = "#2a78d6"     # categorical slot 1
+BASELINE = "#8a8984"  # neutral: the data-only reference
+
+TITLES = {
+    "sqft": "Living area (USD / sq ft)",
+    "bedrooms": "Bedrooms (USD / room)",
+    "age_years": "Age (USD / year)",
+    "garage": "Garage (USD)",
+}
+
+
+def paths(estimator_cls, priors, X, y, grid):
+    coefs = np.array([estimator_cls(priors, alpha=a).fit(X, y).coef_ for a in grid])
+    chosen = estimator_cls(priors, alpha="cv").fit(X, y)
+    return coefs, chosen.alpha_, chosen.coef_
 
 
 def main() -> None:
     X, y, ood_mask = make_housing()
+    X_id, y_id = X[~ood_mask], y[~ood_mask]  # fit on in-domain homes only
     priors = PriorBundle.load(Path(__file__).parent / "priors" / "housing_prior.json")
-    report = ep.compare(X, y, priors, ood_mask=ood_mask, alpha="cv")
-    df = report.summary()
+    zero = PriorBundle(priors.feature_names, np.zeros((2, priors.n_features)))
 
-    baseline = report.baseline_label  # "Ridge"
-    prior = "Prior-Mean"
-    splits = ["ID", "OOD"]
-    labels = ["In-domain", "Out-of-domain"]
+    grid = np.logspace(-2, 5, 60)
+    ridge, ridge_a, ridge_c = paths(ep.PriorMeanRidge, zero, X_id, y_id, grid)
+    prior, prior_a, prior_c = paths(ep.PriorMeanRidge, priors, X_id, y_id, grid)
+    mu, sd = priors.mean(), priors.samples.std(axis=0, ddof=1)
 
-    def metric(model, split, col):
-        return float(df.query("model == @model and split == @split")[col].iloc[0])
+    plt.rcParams.update({"font.size": 9, "axes.edgecolor": GRID, "axes.labelcolor": INK_2,
+                         "xtick.color": INK_2, "ytick.color": INK_2})
+    fig, axes = plt.subplots(1, 4, figsize=(11, 3.1), facecolor=SURFACE)
 
-    base_vals = [metric(baseline, s, "rmse") for s in splits]
-    prior_vals = [metric(prior, s, "rmse") for s in splits]
+    for j, (ax, name) in enumerate(zip(axes, priors.feature_names)):
+        ax.set_facecolor(SURFACE)
+        ax.axhspan(mu[j] - sd[j], mu[j] + sd[j], color=PRIOR, alpha=0.10, lw=0)
+        ax.axhline(mu[j], color=PRIOR, lw=1, ls=(0, (3, 3)), alpha=0.7)
+        ax.axhline(0, color=GRID, lw=1)
+        ax.plot(grid, ridge[:, j], color=BASELINE, lw=2, label="Ridge → shrinks to 0")
+        ax.plot(grid, prior[:, j], color=PRIOR, lw=2, label="Prior-Mean → shrinks to LLM prior")
+        ax.plot([ridge_a], [ridge_c[j]], "o", ms=7, color=BASELINE, mec=SURFACE, mew=2)
+        ax.plot([prior_a], [prior_c[j]], "o", ms=7, color=PRIOR, mec=SURFACE, mew=2)
+        ax.set_xscale("log")
+        ax.set_title(TITLES.get(name, name), color=INK, fontsize=9.5, loc="left")
+        ax.tick_params(length=0)
+        ax.grid(axis="y", color=GRID, lw=0.8)
+        ax.set_axisbelow(True)
+        for side in ("top", "right", "left"):
+            ax.spines[side].set_visible(False)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
+        ax.set_xlabel("penalty strength α", color=MUTED)
 
-    x = np.arange(len(splits))
-    w = 0.36
-    fig, ax = plt.subplots(figsize=(7.2, 4.4))
-    b1 = ax.bar(x - w / 2, base_vals, w, label=f"{baseline} (data only)", color="#9aa5b1")
-    b2 = ax.bar(x + w / 2, prior_vals, w, label=f"{prior} (LLM prior)", color="#2f6fed")
+    handles, labels = axes[0].get_legend_handles_labels()
+    handles.append(plt.Rectangle((0, 0), 1, 1, color=PRIOR, alpha=0.15, lw=0))
+    labels.append("LLM prior (mean ± 1 sd)")
+    handles.append(plt.Line2D([], [], marker="o", ls="", color=INK_2, ms=6))
+    labels.append("chosen by cross-validation")
+    fig.legend(handles, labels, loc="upper center", ncol=4, frameon=False,
+               bbox_to_anchor=(0.5, 1.02), fontsize=9, labelcolor=INK_2)
 
-    ax.set_xticks(x, labels)
-    ax.set_ylabel("RMSE (USD) — lower is better")
-    ax.set_title("LLM priors help where the data runs out (housing demo)")
-    ax.bar_label(b1, fmt="%.0f", padding=2, fontsize=9)
-    ax.bar_label(b2, fmt="%.0f", padding=2, fontsize=9)
-    ax.legend(frameon=False)
-    ax.spines[["top", "right"]].set_visible(False)
-
-    # annotate the OOD improvement (both metrics, so the number is unambiguous)
-    rmse_lift = (base_vals[1] - prior_vals[1]) / base_vals[1] * 100
-    base_mse, prior_mse = metric(baseline, "OOD", "mse"), metric(prior, "OOD", "mse")
-    mse_lift = (base_mse - prior_mse) / base_mse * 100
-    ax.annotate(
-        f"-{rmse_lift:.1f}% RMSE\n(-{mse_lift:.1f}% MSE)\nout-of-domain",
-        xy=(1 + w / 2, prior_vals[1]),
-        xytext=(1.05, prior_vals[1] + 0.16 * base_vals[1]),
-        fontsize=9, color="#2f6fed", fontweight="bold", ha="center",
-        arrowprops=dict(arrowstyle="->", color="#2f6fed"),
-    )
-
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(OUT, dpi=140)
-    print(f"wrote {OUT}  (OOD improvement {rmse_lift:.1f}% RMSE / {mse_lift:.1f}% MSE)")
+    fig.savefig(OUT, dpi=160, facecolor=SURFACE)
+    print(f"wrote {OUT}")
 
 
 if __name__ == "__main__":
